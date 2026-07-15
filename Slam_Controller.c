@@ -5,15 +5,18 @@
 #include <termios.h>
 #include <unistd.h>
 
+#include "CoreSLAM.h"
+
 #define LD06_SCAN_SIZE 503
 #define LINE_SIZE 100
 
-uint16_t d[LD06_SCAN_SIZE];
 
-//gcc Slam_Controller.c -o go
+
+//gcc Slam_Controller.c CoreSLAM_state.c CoreSLAM_random.c CoreSLAM.c CoreSLAM_ext.c CoreSLAM_loop_closing.c -lm -o go
 //./go
 
 //powershell
+
 //usbipd list
 //usbipd bind --busid <BUSID>
 //usbipd attach --wsl --busid <BUSID>
@@ -119,6 +122,70 @@ int extract_first_number(const char line[], int *i, float *angle, int *distance)
     return 0;
 }
 
+
+
+ts_sensor_data_t sd_a = {
+    .timestamp = 0,
+    //current readings
+    .q1 = 0,
+    .q2 = 0,
+    .v = 0,
+    .psidot = 0,
+    .position = {0},
+    .d = {0},
+};
+
+ts_sensor_data_t sd_b = {
+    .timestamp = 0,
+    //current readings
+    .q1 = 0,
+    .q2 = 0,
+    .v = 0,
+    .psidot = 0,
+    .position = {0},
+    .d = {0},
+};
+
+ts_sensor_data_t *write_scan = &sd_a;
+
+
+ts_scan_t scan = {
+    .x = {0},
+    .y = {0},
+    .value = {0},
+    .nb_points = 0
+};
+
+
+
+ts_state_t state = {
+    .randomizer = {0},
+    .map = NULL,
+    .params = {0},
+    .laser_params = {
+        .scan_size = 503,
+        .angle_min = 0,
+        .angle_max = 360,
+        .detection_margin = 0,
+        .distance_no_detection = 0
+    },
+    .position = {0},
+    //pervious readings
+    .q1 = 0,
+    .q2 = 0,
+    .timestamp = 0,
+    .psidot = 0.0,
+    .v = 0.0,
+    .distance = 0.0,
+    .hole_width = 0,
+    .direction = 0,
+    .done = 0,
+    .draw_hole_map = 0,
+    .scan = {0},
+    .sigma_xy = 0.0,
+    .sigma_theta = 0.0
+};
+
 int main(void)
 {
     const char *port_name = "/dev/ttyACM0";
@@ -133,10 +200,12 @@ int main(void)
     if (serial_port < 0) {
         return 1;
     }
+    int ready_process = 0;
 
     printf("Reading serial data from %s...\n", port_name);
 
     while (1) {
+
         line_received = serial_read_line(serial_port, line, LINE_SIZE);
 
         if (line_received < 0) {
@@ -145,10 +214,21 @@ int main(void)
 
         if (line_received == 1) {
             if (extract_first_number(line, &i, &angle, &distance)) {
-                printf("(%d, %d)\n", i, distance);
+                // printf("(%d, %d)\n", i, distance);
             } else {
                 printf("Invalid line: %s\n", line);
             }
+        }
+        write_scan->d[i] = distance;
+
+        if (i == 502) {
+            ts_build_scan(write_scan, &scan, &state, 1);
+            for(i = 0; i < 503; i++) {
+                printf("(i = %d x:%lf y:%lf, value: %d)\n", i ,scan.x[i], scan.y[i], scan.value[i]);
+            }
+            // ts_sensor_data_t *swaping_buffer = read_scan
+            // write_scan = read_scan;
+            // read_scan = write_scan;
         }
     }
 
