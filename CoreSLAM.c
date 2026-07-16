@@ -13,6 +13,7 @@ void ts_map_init(ts_map_t *map) //go through every uint16_t in the map array and
     int x, y, initval; //initval value used to initalise each cell
     ts_map_pixel_t *ptr;
     initval = (TS_OBSTACLE + TS_NO_OBSTACLE) / 2; //which is value for unkown
+    //map->map becuase they called the struct map and map has field/vlaue called map which is an array
     for (ptr = map->map, y = 0; y < TS_MAP_SIZE; y++) {
 	for (x = 0; x < TS_MAP_SIZE; x++, ptr++) {
 	    *ptr = initval;

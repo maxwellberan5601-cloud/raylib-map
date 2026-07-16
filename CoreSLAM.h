@@ -31,7 +31,11 @@ typedef struct {
     unsigned int timestamp;
     int q1, q2;                // Odometry information
     double v, psidot;          // Used to correct the scans according to the speed of the robot
-    ts_position_t position[3]; // 0 : forward - 1 : backward - 2 : final / closed loop
+    ts_position_t position[3]; 
+    // 0 : forward - 1 : backward - 2 : final / closed loop
+    // sd->position[0]  // position found when processing forward
+    // sd->position[1]  // position found when processing backward
+    // sd->position[2]  // final corrected position
     int d[TS_SCAN_SIZE];
 } ts_sensor_data_t;
 
@@ -77,7 +81,7 @@ typedef struct {
     int scan_size;  // number of points per scan
     int angle_min;  // start angle for scan
     int angle_max;  // end angle for scan
-    int detection_margin; // first scan element to consider
+    int detection_margin; // it it was 10 it telling the proram to ignore scans 10 values and the begin and end
     double distance_no_detection; // default value when the laser returns 0
 } ts_laser_parameters_t;
 

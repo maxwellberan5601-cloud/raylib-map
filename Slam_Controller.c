@@ -135,16 +135,8 @@ ts_sensor_data_t sd_a = {
     .d = {0},
 };
 
-ts_sensor_data_t sd_b = {
-    .timestamp = 0,
-    //current readings
-    .q1 = 0,
-    .q2 = 0,
-    .v = 0,
-    .psidot = 0,
-    .position = {0},
-    .d = {0},
-};
+
+ts_state_t state = {0};
 
 ts_sensor_data_t *write_scan = &sd_a;
 
@@ -156,35 +148,43 @@ ts_scan_t scan = {
     .nb_points = 0
 };
 
+ts_map_t map = {
+    .map = {0}
+};
 
+ts_robot_parameters_t params = {
+    .r = 61/2 ;
+    .R = 280/2;
+    .inc = 663; //wheel increments per turn
+    .ratio = 1; //ratio bewteen right and left wheel (if there not quiet the same size)
+};
 
-ts_state_t state = {
-    .randomizer = {0},
-    .map = NULL,
-    .params = {0},
-    .laser_params = {
+ts_position_t position = {
+    .x = 0,
+    .y = 0,
+    .theta = 359, //I'm pretty sure it starts there
+};
+
+ts_laser_parameters_t laser_params = {
         .scan_size = 503,
         .angle_min = 0,
         .angle_max = 360,
-        .detection_margin = 0,
-        .distance_no_detection = 0
-    },
-    .position = {0},
-    //pervious readings
-    .q1 = 0,
-    .q2 = 0,
-    .timestamp = 0,
-    .psidot = 0.0,
-    .v = 0.0,
-    .distance = 0.0,
-    .hole_width = 0,
-    .direction = 0,
-    .done = 0,
-    .draw_hole_map = 0,
-    .scan = {0},
-    .sigma_xy = 0.0,
-    .sigma_theta = 0.0
+        .detection_margin = 0, //because we don't want to ignore any values at beging of 0 or end of 360
+        .distance_no_detection = 0 //default value when laser returns 0 because its to far
 };
+
+double sigma_xy = 100; //100mm range +- uncertainty
+double sigma_theta = 10; //+- degree uncertainity
+int hole_width = 300; //thickness of obstacles 300 mm should be thick to not look fragmented
+    //but small enough not artically make the obstalces bigger
+int direction = TS_DIRECTION_FORWARD;
+//for live mapping
+
+
+//values will be init to unkown by map_init
+
+
+
 
 int main(void)
 {
@@ -204,6 +204,16 @@ int main(void)
 
     printf("Reading serial data from %s...\n", port_name);
 
+    //slam
+    //set the map to be filled with uknowns
+    ts_map_init(*map);
+    ts_state_init(state, *map, *params, 
+                *laser_params, *position, sigma_xy, 
+                sigma_theta, hole_width, direction);
+    
+
+
+
     while (1) {
 
         line_received = serial_read_line(serial_port, line, LINE_SIZE);
@@ -221,15 +231,29 @@ int main(void)
         }
         write_scan->d[i] = distance;
 
-        if (i == 502) {
-            ts_build_scan(write_scan, &scan, &state, 1);
-            for(i = 0; i < 503; i++) {
-                printf("(i = %d x:%lf y:%lf, value: %d)\n", i ,scan.x[i], scan.y[i], scan.value[i]);
-            }
-            // ts_sensor_data_t *swaping_buffer = read_scan
-            // write_scan = read_scan;
-            // read_scan = write_scan;
-        }
+        // currently writing over previous scans
+        // if (i == 502) {
+        //     ts_build_scan(write_scan, &scan, &state, 1);
+        //     for(i = 0; i < 503; i++) {
+        //         printf("(i = %d x:%lf y:%lf, value: %d)\n", i ,scan.x[i], scan.y[i], scan.value[i]);
+        //     }
+        // }
+
+
+        //slam
+
+        //only care about feeding sd and ts_scan only important if I want to make save past scans
+        //for loop closure in sensordata[i]
+
+        //raylib
+        //I want to output postion state state->postion.x state->postion.y state->postion.theta
+        //and map
+        ts_iterative_map_building(write_scan, *state);
+
+
+
+
+
     }
 
     close(serial_port);

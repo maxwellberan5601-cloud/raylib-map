@@ -1,6 +1,9 @@
 #include <math.h> //to get fabs which gives abs(floating point)
 #include "CoreSLAM.h"
 
+//pass in a pervious loop close map
+//matching final scan to a old map
+//returns postion based on loop closure
 ts_position_t 
 ts_close_loop_position(ts_state_t *state, ts_sensor_data_t *sensor_data, ts_map_t *loop_close_map, ts_position_t *start_position, int *q)
 {
@@ -9,19 +12,28 @@ ts_close_loop_position(ts_state_t *state, ts_sensor_data_t *sensor_data, ts_map_
     ts_position_t lc_position;
 
     ts_build_scan(sensor_data, &scan, state, 1);
+    // the monte calro serach is far larger
     lc_position = ts_monte_carlo_search(&state->randomizer, &scan, loop_close_map, start_position, 600, 20, 100000, &quality);
     if (q) *q = quality;
     return lc_position;
 }
-    
+
+//someone created an array of sensor data
+//is max scan the number of scans
+//where are the scans getting added
+
+//taking array of all the xy cordinates and correct them
 void 
 ts_close_loop_trajectory(ts_sensor_data_t *sensor_data, int maxscans, 
         ts_position_t *startpos, ts_position_t *close_loop_position)
 {
     int i, j;
+    //weight is how much you trust each scan
+    //theta stores theta[0] = foward theta, theta[1] = back theta
     double weight, theta[2];
     ts_position_t *final_pos;
     for (i = 0; i != maxscans; i++) {
+        
         weight = i / ((double)(maxscans - 1));
         final_pos = &sensor_data[i].position[TS_FINAL_MAP];
         final_pos->x = (1 - weight) * sensor_data[i].position[TS_DIRECTION_FORWARD].x + weight * sensor_data[i].position[TS_DIRECTION_BACKWARD].x;
