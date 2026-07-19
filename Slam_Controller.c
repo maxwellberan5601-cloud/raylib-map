@@ -174,8 +174,8 @@ ts_map_t map = {
 };
 
 ts_robot_parameters_t params = {
-    .r = 61/2,
-    .R = 280/2,
+    .r = 0.061/2,
+    .R = 0.280/2,
     .inc = 663, //wheel increments per turn
     .ratio = 1, //ratio bewteen right and left wheel (if there not quiet the same size)
 };
@@ -210,7 +210,7 @@ int direction = TS_DIRECTION_FORWARD;
 
 int main(void)
 {
-    const char *port_name = "/dev/ttyACM0";
+    const char *port_name = "/dev/ttyACM1";
     int serial_port;
     char line[LINE_SIZE];
     int i = -1;
