@@ -10,6 +10,7 @@
 
 #define LD06_SCAN_SIZE 503
 #define LINE_SIZE 100
+#define LD06_NO_DETECTION_DISTANCE_MM 6000
 
 
 
@@ -114,14 +115,30 @@ int serial_read_line(int serial_port, char line[], int line_size)
 int extract_first_number(const char line[], int *i, float *angle, 
                             int *distance, int *q1, int *q2, unsigned long *timestamp)
 {   
-    if (sscanf(line, "time: %ld", timestamp) == 1) {
+    int quality;
+
+    if (sscanf(line, "time: %lu", timestamp) == 1) {
         return 1;
     }
     else if (sscanf(line, "Index:%d:%d", q1, q2) == 2) {
-        return 1;
+        return 2;
     }
     else if (sscanf(line, "%d,%f,%d", i,angle,distance) == 3) {
-        return 1;
+        return 3;
+    }
+    else if (sscanf(line, "%f,%d,%d,%d,%d", angle, distance, &quality, q1, q2) == 5) {
+        while (*angle < 0.0f) {
+            *angle += 360.0f;
+        }
+        while (*angle >= 360.0f) {
+            *angle -= 360.0f;
+        }
+
+        *i = (int)((*angle / 360.0f) * LD06_SCAN_SIZE);
+        if (*i >= LD06_SCAN_SIZE) {
+            *i = LD06_SCAN_SIZE - 1;
+        }
+        return 3;
     }
     return 0;
 }
@@ -175,7 +192,7 @@ ts_laser_parameters_t laser_params = {
         .angle_min = 0,
         .angle_max = 360,
         .detection_margin = 0, //because we don't want to ignore any values at beging of 0 or end of 360
-        .distance_no_detection = 0 //default value when laser returns 0 because its to far
+        .distance_no_detection = LD06_NO_DETECTION_DISTANCE_MM //default value when laser returns 0 because its too far
 };
 
 double sigma_xy = 100; //100mm range +- uncertainty
@@ -196,16 +213,18 @@ int main(void)
     const char *port_name = "/dev/ttyACM0";
     int serial_port;
     char line[LINE_SIZE];
-    int i;
-    float angle;
-    int distance;
+    int i = -1;
+    float angle = 0;
+    int distance = 0;
 
-    int q1;
-    int q2;
+    int q1 = 0;
+    int q2 = 0;
 
-    unsigned long timestamp;
+    unsigned long timestamp = 0;
 
     int line_received;
+    int scan_ready = 0;
+    unsigned long fallback_timestamp = 0;
 
 
     serial_port = serial_init(port_name);
@@ -235,16 +254,26 @@ int main(void)
         }
 
         if (line_received == 1) {
-            if (extract_first_number(line, &i, &angle, &distance, &q1, &q2, &timestamp)) {
+            int line_type = extract_first_number(line, &i, &angle, &distance, &q1, &q2, &timestamp);
+
+            if (line_type == 1) {
+                write_scan->timestamp = timestamp;
+            } else if (line_type == 2) {
+                write_scan->q1 = q1;
+                write_scan->q2 = q2;
+            } else if (line_type == 3) {
                 // printf("(%d, %d)\n", i, distance);
+                if (i >= 0 && i < LD06_SCAN_SIZE) {
+                    write_scan->d[i] = distance;
+
+                    if (i == LD06_SCAN_SIZE - 1) {
+                        scan_ready = 1;
+                    }
+                }
             } else {
                 printf("Invalid line: %s\n", line);
             }
         }
-        write_scan->d[i] = distance;
-        write_scan->q1 = q1;
-        write_scan->q2 = q2;
-        write_scan->timestamp = timestamp;
 
 
         // currently writing over previous scans
@@ -267,11 +296,23 @@ int main(void)
 
         //missing q1 q2 update
         //and time stamp for sensor data
-        ts_iterative_map_building(write_scan, &state);
+        if (scan_ready && write_scan->timestamp == state.timestamp) {
+            fallback_timestamp = state.timestamp + 100000;
+            write_scan->timestamp = fallback_timestamp;
+        }
 
-        // map is pointer in state so but doing to *state I'm dereferencing to be the value of the map
-        set_map(*state.map);
-        set_position(state.position);
+        if (scan_ready && write_scan->timestamp != 0) {
+            ts_iterative_map_building(write_scan, &state);
+
+            // state.map is already a pointer to the map.
+            set_map(state.map);
+            set_position(state.position);
+            scan_ready = 0;
+            double x = state.position.x;
+            double y = state.position.y;
+            printf("x: %lf, y: %lf\n", x, y);
+
+        }
         //why doe it need to be static
 
 
