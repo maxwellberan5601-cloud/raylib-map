@@ -4,6 +4,7 @@
 #include <fcntl.h>
 #include <termios.h>
 #include <unistd.h>
+#include <errno.h>
 
 #include "CoreSLAM.h"
 #include "output_manager.h"
@@ -24,6 +25,8 @@
 //usbipd attach --wsl --busid <BUSID>
 // ls /dev/ttyACM* /dev/ttyUSB*
 
+//gcc raylib_map_viewer.c Slam_Controller.c output_manager.c CoreSLAM_state.c CoreSLAM_random.c CoreSLAM.c CoreSLAM_ext.c CoreSLAM_loop_closing.c -o slam_viewer -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
+// ./slam_viewer
 
 /*
  * Opens and configures the serial port.
@@ -34,7 +37,7 @@ int serial_init(const char *port_name)
     int serial_port;
     struct termios tty;
 
-    serial_port = open(port_name, O_RDONLY | O_NOCTTY);
+    serial_port = open(port_name, O_RDONLY | O_NOCTTY | O_NONBLOCK);
     if (serial_port < 0) {
         perror("Could not open serial port");
         return -1;
@@ -57,7 +60,7 @@ int serial_init(const char *port_name)
     tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
     tty.c_iflag &= ~(IXON | IXOFF | IXANY);
     tty.c_oflag &= ~OPOST;
-    tty.c_cc[VMIN] = 1;
+    tty.c_cc[VMIN] = 0;
     tty.c_cc[VTIME] = 0;
 
     if (tcsetattr(serial_port, TCSANOW, &tty) != 0) {
@@ -71,7 +74,7 @@ int serial_init(const char *port_name)
 
 /*
  * Reads characters until a complete line arrives.
- * Returns 1 for a complete line, 0 otherwise, or -1 on error.
+ * Returns 1 for a complete line, 2 for a byte read, 0 for no data, or -1 on error.
  */
 int serial_read_line(int serial_port, char line[], int line_size)
 {
@@ -80,6 +83,9 @@ int serial_read_line(int serial_port, char line[], int line_size)
     int bytes_read = read(serial_port, &character, 1);
 
     if (bytes_read < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return 0;
+        }
         perror("Serial read failed");
         return -1;
     }
@@ -90,7 +96,7 @@ int serial_read_line(int serial_port, char line[], int line_size)
 
     if (character == '\n' || character == '\r') {
         if (position == 0) {
-            return 0;
+            return 2;
         }
 
         line[position] = '\0';
@@ -101,12 +107,12 @@ int serial_read_line(int serial_port, char line[], int line_size)
     if (position < line_size - 1) {
         line[position] = character;
         position++;
+        return 2;
     } else {
         position = 0;
         printf("Serial line was too long\n");
+        return 2;
     }
-
-    return 0;
 }
 
 /*
@@ -208,121 +214,110 @@ int direction = TS_DIRECTION_FORWARD;
 
 
 
-int main(void)
+static int controller_serial_port = -1;
+static char controller_line[LINE_SIZE];
+static int scan_ready = 0;
+
+static void process_controller_line(const char *line)
 {
-    const char *port_name = "/dev/ttyACM1";
-    int serial_port;
-    char line[LINE_SIZE];
     int i = -1;
     float angle = 0;
     int distance = 0;
-
     int q1 = 0;
     int q2 = 0;
-
     unsigned long timestamp = 0;
+    int line_type = extract_first_number(line, &i, &angle, &distance, &q1, &q2, &timestamp);
 
-    int line_received;
-    int scan_ready = 0;
-    unsigned long fallback_timestamp = 0;
+    if (line_type == 1) {
+        write_scan->timestamp = timestamp;
+    } else if (line_type == 2) {
+        write_scan->q1 = q1;
+        write_scan->q2 = q2;
+    } else if (line_type == 3) {
+        if (i >= 0 && i < LD06_SCAN_SIZE) {
+            write_scan->d[i] = distance;
 
-
-    serial_port = serial_init(port_name);
-    if (serial_port < 0) {
-        return 1;
+            if (i == LD06_SCAN_SIZE - 1) {
+                scan_ready = 1;
+            }
+        }
+    } else {
+        printf("Invalid line: %s\n", line);
     }
-    int ready_process = 0;
+}
+
+static void run_slam_when_ready(void)
+{
+    if (!scan_ready) {
+        return;
+    }
+
+    if (write_scan->timestamp == state.timestamp) {
+        write_scan->timestamp = state.timestamp + 100000;
+    }
+
+    if (write_scan->timestamp == 0) {
+        return;
+    }
+
+    ts_iterative_map_building(write_scan, &state);
+    set_map(state.map);
+    set_position(state.position);
+    scan_ready = 0;
+}
+
+int slam_controller_init(const char *port_name)
+{
+    controller_serial_port = serial_init(port_name);
+    if (controller_serial_port < 0) {
+        return 0;
+    }
 
     printf("Reading serial data from %s...\n", port_name);
 
-    //slam
-    //set the map to be filled with uknowns
     ts_map_init(&map);
-    ts_state_init(&state, &map, &params, 
-                &laser_params, &position, sigma_xy, 
-                sigma_theta, hole_width, direction);
-    
+    ts_state_init(&state, &map, &params,
+                  &laser_params, &position, sigma_xy,
+                  sigma_theta, hole_width, direction);
+    set_map(state.map);
+    set_position(state.position);
+    return 1;
+}
 
+void slam_controller_update(void)
+{
+    int lines_processed = 0;
 
+    if (controller_serial_port < 0) {
+        return;
+    }
 
-    while (1) {
-
-        line_received = serial_read_line(serial_port, line, LINE_SIZE);
+    while (lines_processed < 4096) {
+        int line_received = serial_read_line(controller_serial_port, controller_line, LINE_SIZE);
 
         if (line_received < 0) {
+            close(controller_serial_port);
+            controller_serial_port = -1;
+            return;
+        }
+
+        if (line_received == 0) {
             break;
         }
 
         if (line_received == 1) {
-            int line_type = extract_first_number(line, &i, &angle, &distance, &q1, &q2, &timestamp);
-
-            if (line_type == 1) {
-                write_scan->timestamp = timestamp;
-            } else if (line_type == 2) {
-                write_scan->q1 = q1;
-                write_scan->q2 = q2;
-            } else if (line_type == 3) {
-                // printf("(%d, %d)\n", i, distance);
-                if (i >= 0 && i < LD06_SCAN_SIZE) {
-                    write_scan->d[i] = distance;
-
-                    if (i == LD06_SCAN_SIZE - 1) {
-                        scan_ready = 1;
-                    }
-                }
-            } else {
-                printf("Invalid line: %s\n", line);
-            }
+            process_controller_line(controller_line);
+            run_slam_when_ready();
         }
 
-
-        // currently writing over previous scans
-        // if (i == 502) {
-        //     ts_build_scan(write_scan, &scan, &state, 1);
-        //     for(i = 0; i < 503; i++) {
-        //         printf("(i = %d x:%lf y:%lf, value: %d)\n", i ,scan.x[i], scan.y[i], scan.value[i]);
-        //     }
-        // }
-
-
-        //slam
-
-        //only care about feeding sd and ts_scan only important if I want to make save past scans
-        //for loop closure in sensordata[i]
-
-        //raylib
-        //I want to output postion state state->postion.x state->postion.y state->postion.theta
-        //and map
-
-        //missing q1 q2 update
-        //and time stamp for sensor data
-        if (scan_ready && write_scan->timestamp == state.timestamp) {
-            fallback_timestamp = state.timestamp + 100000;
-            write_scan->timestamp = fallback_timestamp;
-        }
-
-        if (scan_ready && write_scan->timestamp != 0) {
-            ts_iterative_map_building(write_scan, &state);
-
-            // state.map is already a pointer to the map.
-            set_map(state.map);
-            set_position(state.position);
-            scan_ready = 0;
-            double x = state.position.x;
-            double y = state.position.y;
-            printf("x: %lf, y: %lf\n", x, y);
-
-        }
-        //why doe it need to be static
-
-
-
-
-
-
-
+        lines_processed++;
     }
+}
 
-    close(serial_port);
-    return 0;
+void slam_controller_close(void)
+{
+    if (controller_serial_port >= 0) {
+        close(controller_serial_port);
+        controller_serial_port = -1;
+    }
 }
