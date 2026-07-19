@@ -110,15 +110,18 @@ int serial_read_line(int serial_port, char line[], int line_size)
 /*
  * Extracts the first number from a line such as hello:3,4,5.
  */
-int extract_first_number(const char line[], int *i, float *angle, int *distance)
-{
-    int result = sscanf(line, "%d,%f,%d", i,angle,distance); 
-    //set the values of the pointers
-
-    if (result == 3) {
+int extract_first_number(const char line[], int *i, float *angle, 
+                            int *distance, int *q1, int *q2, unsigned long *timestamp)
+{   
+    if (sscanf(line, "time: %d", timestamp) == 1) {
         return 1;
     }
-
+    else if (sscanf(line "Index:%d:%d", q1, q2) == 2) {
+        return 1;
+    }
+    else if (sscanf(line, "%d,%f,%d", i,angle,distance) == 3) {
+        return 1;
+    }
     return 0;
 }
 
@@ -166,6 +169,7 @@ ts_position_t position = {
 };
 
 ts_laser_parameters_t laser_params = {
+        .offset = 0, //it assumes the lidars offset is proptional in x y from yhe centre
         .scan_size = 503,
         .angle_min = 0,
         .angle_max = 360,
@@ -194,7 +198,14 @@ int main(void)
     int i;
     float angle;
     int distance;
+
+    int q1;
+    int q2
+
+    unsigned long timestamp;
+
     int line_received;
+
 
     serial_port = serial_init(port_name);
     if (serial_port < 0) {
@@ -223,13 +234,17 @@ int main(void)
         }
 
         if (line_received == 1) {
-            if (extract_first_number(line, &i, &angle, &distance)) {
+            if (extract_first_number(line, &i, &angle, &distance, &q1, &q2, &timestamp)) {
                 // printf("(%d, %d)\n", i, distance);
             } else {
                 printf("Invalid line: %s\n", line);
             }
         }
         write_scan->d[i] = distance;
+        write_scan->q1 = q1;
+        write_scan->q2 = q2;
+        write_scan->timestamp = timestamp;
+
 
         // currently writing over previous scans
         // if (i == 502) {
@@ -248,7 +263,14 @@ int main(void)
         //raylib
         //I want to output postion state state->postion.x state->postion.y state->postion.theta
         //and map
+
+        //missing q1 q2 update
+        //and time stamp for sensor data
         ts_iterative_map_building(write_scan, *state);
+
+        //why doe it need to be static
+
+
 
 
 
