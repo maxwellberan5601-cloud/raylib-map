@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include "CoreSLAM.h"
+#include "output_manager.h"
 
 #define LD06_SCAN_SIZE 503
 #define LINE_SIZE 100
@@ -113,10 +114,10 @@ int serial_read_line(int serial_port, char line[], int line_size)
 int extract_first_number(const char line[], int *i, float *angle, 
                             int *distance, int *q1, int *q2, unsigned long *timestamp)
 {   
-    if (sscanf(line, "time: %d", timestamp) == 1) {
+    if (sscanf(line, "time: %ld", timestamp) == 1) {
         return 1;
     }
-    else if (sscanf(line "Index:%d:%d", q1, q2) == 2) {
+    else if (sscanf(line, "Index:%d:%d", q1, q2) == 2) {
         return 1;
     }
     else if (sscanf(line, "%d,%f,%d", i,angle,distance) == 3) {
@@ -156,10 +157,10 @@ ts_map_t map = {
 };
 
 ts_robot_parameters_t params = {
-    .r = 61/2 ;
-    .R = 280/2;
-    .inc = 663; //wheel increments per turn
-    .ratio = 1; //ratio bewteen right and left wheel (if there not quiet the same size)
+    .r = 61/2,
+    .R = 280/2,
+    .inc = 663, //wheel increments per turn
+    .ratio = 1, //ratio bewteen right and left wheel (if there not quiet the same size)
 };
 
 ts_position_t position = {
@@ -200,7 +201,7 @@ int main(void)
     int distance;
 
     int q1;
-    int q2
+    int q2;
 
     unsigned long timestamp;
 
@@ -217,9 +218,9 @@ int main(void)
 
     //slam
     //set the map to be filled with uknowns
-    ts_map_init(*map);
-    ts_state_init(state, *map, *params, 
-                *laser_params, *position, sigma_xy, 
+    ts_map_init(&map);
+    ts_state_init(&state, &map, &params, 
+                &laser_params, &position, sigma_xy, 
                 sigma_theta, hole_width, direction);
     
 
@@ -266,8 +267,11 @@ int main(void)
 
         //missing q1 q2 update
         //and time stamp for sensor data
-        ts_iterative_map_building(write_scan, *state);
+        ts_iterative_map_building(write_scan, &state);
 
+        // map is pointer in state so but doing to *state I'm dereferencing to be the value of the map
+        set_map(*state.map);
+        set_position(state.position);
         //why doe it need to be static
 
 
