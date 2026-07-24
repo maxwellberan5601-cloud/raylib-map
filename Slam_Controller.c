@@ -12,6 +12,7 @@
 #define LD06_SCAN_SIZE 503
 #define LINE_SIZE 100
 #define LD06_NO_DETECTION_DISTANCE_MM 6000
+#define MIN_SCAN_POINTS 120
 
 
 
@@ -94,11 +95,11 @@ int serial_read_line(int serial_port, char line[], int line_size)
         return 0;
     }
 
-    if (character == '\n' || character == '\r') {
-        if (position == 0) {
-            return 2;
-        }
+    if (character == '\r') {
+        return 2;
+    }
 
+    if (character == '\n') {
         line[position] = '\0';
         position = 0;
         return 1;
@@ -122,6 +123,7 @@ int extract_first_number(const char line[], int *i, float *angle,
                             int *distance, int *q1, int *q2, unsigned long *timestamp)
 {   
     int quality;
+    int point_number;
 
     if (sscanf(line, "time: %lu", timestamp) == 1) {
         return 1;
@@ -129,7 +131,18 @@ int extract_first_number(const char line[], int *i, float *angle,
     else if (sscanf(line, "Index:%d:%d", q1, q2) == 2) {
         return 2;
     }
-    else if (sscanf(line, "%d,%f,%d", i,angle,distance) == 3) {
+    else if (sscanf(line, "%d,%f,%d", &point_number, angle, distance) == 3) {
+        while (*angle < 0.0f) {
+            *angle += 360.0f;
+        }
+        while (*angle >= 360.0f) {
+            *angle -= 360.0f;
+        }
+
+        *i = (int)((*angle / 360.0f) * LD06_SCAN_SIZE);
+        if (*i >= LD06_SCAN_SIZE) {
+            *i = LD06_SCAN_SIZE - 1;
+        }
         return 3;
     }
     else if (sscanf(line, "%f,%d,%d,%d,%d", angle, distance, &quality, q1, q2) == 5) {
@@ -217,6 +230,17 @@ int direction = TS_DIRECTION_FORWARD;
 static int controller_serial_port = -1;
 static char controller_line[LINE_SIZE];
 static int scan_ready = 0;
+static int scan_points_received = 0;
+static unsigned char scan_received[LD06_SCAN_SIZE] = {0};
+
+static void clear_pending_scan(void)
+{
+    for (int i = 0; i < LD06_SCAN_SIZE; i++) {
+        write_scan->d[i] = 0;
+        scan_received[i] = 0;
+    }
+    scan_points_received = 0;
+}
 
 static void process_controller_line(const char *line)
 {
@@ -228,7 +252,11 @@ static void process_controller_line(const char *line)
     unsigned long timestamp = 0;
     int line_type = extract_first_number(line, &i, &angle, &distance, &q1, &q2, &timestamp);
 
-    if (line_type == 1) {
+    if (line[0] == '\0') {
+        if (scan_points_received >= MIN_SCAN_POINTS) {
+            scan_ready = 1;
+        }
+    } else if (line_type == 1) {
         write_scan->timestamp = timestamp;
     } else if (line_type == 2) {
         write_scan->q1 = q1;
@@ -237,8 +265,9 @@ static void process_controller_line(const char *line)
         if (i >= 0 && i < LD06_SCAN_SIZE) {
             write_scan->d[i] = distance;
 
-            if (i == LD06_SCAN_SIZE - 1) {
-                scan_ready = 1;
+            if (!scan_received[i]) {
+                scan_received[i] = 1;
+                scan_points_received++;
             }
         }
     } else {
@@ -264,6 +293,7 @@ static void run_slam_when_ready(void)
     set_map(state.map);
     set_position(state.position);
     scan_ready = 0;
+    clear_pending_scan();
 }
 
 int slam_controller_init(const char *port_name)
@@ -279,6 +309,7 @@ int slam_controller_init(const char *port_name)
     ts_state_init(&state, &map, &params,
                   &laser_params, &position, sigma_xy,
                   sigma_theta, hole_width, direction);
+    clear_pending_scan();
     set_map(state.map);
     set_position(state.position);
     return 1;
