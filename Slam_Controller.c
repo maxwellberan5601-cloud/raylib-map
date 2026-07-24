@@ -25,7 +25,7 @@
 //usbipd attach --wsl --busid <BUSID>
 // ls /dev/ttyACM* /dev/ttyUSB*
 
-//gcc raylib_map_viewer.c Slam_Controller.c output_manager.c CoreSLAM_state.c CoreSLAM_random.c CoreSLAM.c CoreSLAM_ext.c CoreSLAM_loop_closing.c -o slam_viewer -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
+// gcc raylib_map_viewer.c Slam_Controller.c output_manager.c CoreSLAM_state.c CoreSLAM_random.c CoreSLAM.c CoreSLAM_ext.c CoreSLAM_loop_closing.c -o slam_viewer -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
 // ./slam_viewer
 
 /*
@@ -182,13 +182,13 @@ ts_map_t map = {
 ts_robot_parameters_t params = {
     .r = 0.061/2,
     .R = 0.280/2,
-    .inc = 663, //wheel increments per turn
+    .inc = 663*2, //wheel increments per turn
     .ratio = 1, //ratio bewteen right and left wheel (if there not quiet the same size)
 };
 
 ts_position_t position = {
-    .x = 0,
-    .y = 0,
+    .x = 10000,
+    .y = 10000,
     .theta = 359, //I'm pretty sure it starts there
 };
 
@@ -201,8 +201,8 @@ ts_laser_parameters_t laser_params = {
         .distance_no_detection = LD06_NO_DETECTION_DISTANCE_MM //default value when laser returns 0 because its too far
 };
 
-double sigma_xy = 100; //100mm range +- uncertainty
-double sigma_theta = 10; //+- degree uncertainity
+double sigma_xy = 1000; //100mm range +- uncertainty
+double sigma_theta = 30; //+- degree uncertainity
 int hole_width = 300; //thickness of obstacles 300 mm should be thick to not look fragmented
     //but small enough not artically make the obstalces bigger
 int direction = TS_DIRECTION_FORWARD;

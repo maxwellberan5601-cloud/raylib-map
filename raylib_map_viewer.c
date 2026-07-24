@@ -12,7 +12,7 @@
 #define RIGHT_MARGIN 260
 #define TOP_MARGIN 20
 #define BOTTOM_MARGIN 60
-#define DEFAULT_SERIAL_PORT "/dev/ttyACM0"
+#define DEFAULT_SERIAL_PORT "/dev/ttyACM1"
 #define MAJOR_GRID_STEP_CELLS 128
 
 int slam_controller_init(const char *port_name);
@@ -23,6 +23,12 @@ void slam_controller_close(void);
 
 //gcc raylib_map_viewer.c Slam_Controller.c CoreSLAM_state.c CoreSLAM_random.c CoreSLAM.c CoreSLAM_ext.c CoreSLAM_loop_closing.c output_manager.c -o slam_viewer -lraylib -lGL -lm -lpthread -ldl -lrt -lX11
 //./slam_viewer
+
+// usbipd list
+// usbipd bind --busid 1-3
+// usbipd attach --wsl --busid 1-3
+
+
 static Color map_pixels[TS_MAP_SIZE * TS_MAP_SIZE];
 
 static float grid_left;

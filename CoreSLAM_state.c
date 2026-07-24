@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include "CoreSLAM.h"
+#include <stdio.h>
 
 //presistant slma data (data remeber bewteen lidar and encoder readings and timestamps)
 void
