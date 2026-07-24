@@ -236,7 +236,7 @@ static unsigned char scan_received[LD06_SCAN_SIZE] = {0};
 static void clear_pending_scan(void)
 {
     for (int i = 0; i < LD06_SCAN_SIZE; i++) {
-        write_scan->d[i] = 0;
+        write_scan->d[i] = -1;
         scan_received[i] = 0;
     }
     scan_points_received = 0;
@@ -292,6 +292,8 @@ static void run_slam_when_ready(void)
     ts_iterative_map_building(write_scan, &state);
     set_map(state.map);
     set_position(state.position);
+    printf("theta: %.2f degrees\n", state.position.theta);
+    fflush(stdout);
     scan_ready = 0;
     clear_pending_scan();
 }

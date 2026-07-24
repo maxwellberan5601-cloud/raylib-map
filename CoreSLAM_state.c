@@ -49,12 +49,8 @@ ts_build_scan(ts_sensor_data_t *sd, ts_scan_t *scan, ts_state_t *state, int span
 
             angle_rad = angle_deg * M_PI / 180;
             if (i > state->laser_params.detection_margin && i < state->laser_params.scan_size - state->laser_params.detection_margin) {
-                if (sd->d[i] == 0) {
-                    scan->x[scan->nb_points] = state->laser_params.distance_no_detection * cos(angle_rad);
-                    scan->x[scan->nb_points] -= sd->v * 1000 * ((double)(i * span + j)) * (state->laser_params.angle_max - state->laser_params.angle_min) / (state->laser_params.scan_size * span - 1) / 3600.0;
-                    scan->y[scan->nb_points] = state->laser_params.distance_no_detection * sin(angle_rad);
-                    scan->value[scan->nb_points] = TS_NO_OBSTACLE;
-                    scan->nb_points++;
+                if (sd->d[i] <= 0) {
+                    continue;
                 }
                 if (sd->d[i] > state->hole_width / 2) {
                     scan->x[scan->nb_points] = sd->d[i] * cos(angle_rad);
